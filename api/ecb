@@ -1,0 +1,79 @@
+// api/ecb.js
+// Vercel serverless function — haalt data op bij de ECB Data Portal
+// (SDMX REST API) server-side en geeft ze plat/simpel terug als JSON.
+// Server-side ophalen omslaat CORS-beperkingen in de browser.
+//
+// Gebruik:
+//   /api/ecb?series=depo   -> ECB Deposit Facility Rate (%, meest recente waarde)
+//   /api/ecb?series=hicp   -> HICP YoY inflatie eurozone, laatste 24 maanden
+//   /api/ecb?series=core   -> Kerninflatie (excl. voeding/energie) YoY, laatste 24 maanden
+//
+// Bron: https://data.ecb.europa.eu/help/api/data (ECB Data Portal SDMX 2.1 REST API)
+// Let op: de ECB heeft in 2026 het HICP-dataflow hernoemd (was "ICP"). Deze
+// functie probeert daarom meerdere dataflow-namen na elkaar.
+
+const SERIES = {
+  depo: {
+    dataflows: ["FM"],
+    key: "D.U2.EUR.4F.KR.DFR.LEV",
+    lastN: 1,
+  },
+  hicp: {
+    dataflows: ["ICP", "HICP"],
+    key: "M.U2.N.000000.4.ANR",
+    lastN: 24,
+  },
+  core: {
+    dataflows: ["ICP", "HICP"],
+    key: "M.U2.N.XEF000.4.ANR",
+    lastN: 24,
+  },
+};
+
+async function fetchCsv(dataflow, key, lastN) {
+  const url = `https://data-api.ecb.europa.eu/service/data/${dataflow}/${key}?format=csvdata&lastNObservations=${lastN}`;
+  const resp = await fetch(url, { headers: { Accept: "text/csv" } });
+  if (!resp.ok) throw new Error(`ECB ${dataflow} HTTP ${resp.status}`);
+  const text = await resp.text();
+  const lines = text.trim().split("\n");
+  if (lines.length < 2) throw new Error("ECB: lege response");
+  const header = lines[0].split(",");
+  const timeIdx = header.indexOf("TIME_PERIOD");
+  const valIdx = header.indexOf("OBS_VALUE");
+  if (timeIdx === -1 || valIdx === -1) throw new Error("ECB: onverwacht CSV-formaat");
+  const rows = lines.slice(1).map((l) => {
+    const cells = l.split(",");
+    return { period: cells[timeIdx], value: parseFloat(cells[valIdx]) };
+  }).filter((r) => !Number.isNaN(r.value));
+  if (rows.length === 0) throw new Error("ECB: geen numerieke observaties");
+  return rows;
+}
+
+module.exports = async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Cache-Control", "s-maxage=1800, stale-while-revalidate=3600");
+
+  const series = req.query.series;
+  const cfg = SERIES[series];
+  if (!cfg) {
+    res.status(400).json({ error: "Onbekende series. Gebruik depo | hicp | core." });
+    return;
+  }
+
+  let lastErr = null;
+  for (const flow of cfg.dataflows) {
+    try {
+      const rows = await fetchCsv(flow, cfg.key, cfg.lastN);
+      res.status(200).json({
+        series,
+        dataflow: flow,
+        latest: rows[rows.length - 1],
+        history: rows,
+      });
+      return;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  res.status(502).json({ error: "ECB fetch mislukt", detail: String(lastErr) });
+};
