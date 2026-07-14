@@ -1,0 +1,55 @@
+// api/quote.js
+// Vercel serverless function — haalt een snapshot-koers op bij Stooq
+// (gratis, geen API key) en geeft ze plat terug als JSON.
+//
+// LET OP: dit is een onofficiële/niet-gedocumenteerde Stooq-endpoint die
+// door de quant-community gebruikt wordt (geen officiële "API"). Werkt
+// betrouwbaar voor de meeste tickers maar kan zonder waarschuwing wijzigen.
+// Bouw hier geen productie-kritische toepassing op — voor een schoolproject
+// is dit prima; voor iets serieuzers: Twelve Data / Alpha Vantage / Finnhub
+// (allen gratis tier met API key) of een betaalde feed.
+//
+// Gebruik: /api/quote?symbol=asml.nl
+
+module.exports = async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Cache-Control", "s-maxage=120, stale-while-revalidate=300");
+
+  const symbol = req.query.symbol;
+  if (!symbol) {
+    res.status(400).json({ error: "symbol parameter verplicht" });
+    return;
+  }
+
+  try {
+    const url = `https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlc&h&e=csv`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Stooq HTTP ${resp.status}`);
+    const text = await resp.text();
+    const lines = text.trim().split("\n");
+    if (lines.length < 2) throw new Error("Stooq: lege response");
+    const header = lines[0].split(",").map((h) => h.replace(/"/g, ""));
+    const cells = lines[1].split(",").map((c) => c.replace(/"/g, ""));
+    const row = {};
+    header.forEach((h, i) => (row[h] = cells[i]));
+
+    const open = parseFloat(row.Open);
+    const close = parseFloat(row.Close);
+    if (row.Symbol === undefined || Number.isNaN(close) || close <= 0 || row.Close === "N/D") {
+      throw new Error("Stooq: ongeldige/onbekende ticker");
+    }
+
+    const changePct = open > 0 ? ((close - open) / open) * 100 : null;
+
+    res.status(200).json({
+      symbol: row.Symbol,
+      date: row.Date,
+      time: row.Time,
+      open,
+      close,
+      changePct,
+    });
+  } catch (err) {
+    res.status(502).json({ error: "Quote fetch mislukt", detail: String(err) });
+  }
+};
