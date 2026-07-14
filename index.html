@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Macro Dashboard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ============ TICKER BAR ============ -->
+  <header class="ticker-bar" id="tickerBar">
+    <!-- items worden door JS gevuld -->
+    <div class="ticker-clock">
+      <div class="clock-time" id="clockTime">--:--</div>
+      <div class="clock-date" id="clockDate">-- --- ----</div>
+    </div>
+  </header>
+
+  <main class="dashboard">
+
+    <!-- ============ RIJ 1 ============ -->
+    <section class="grid-row row-1">
+
+      <div class="panel" id="panelCentraleBanken">
+        <div class="panel-header">
+          <h2>Centrale Banken</h2>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Indicator</th><th>Waarde</th><th>Trend</th></tr></thead>
+          <tbody id="tblCentraleBanken"></tbody>
+        </table>
+        <div class="panel-footer">Laatste update: <span class="live-clock"></span></div>
+      </div>
+
+      <div class="panel" id="panelInflatie">
+        <div class="panel-header">
+          <h2>Inflatie (Eurozone)</h2>
+          <span class="badge badge-demo" id="badgeInflatie">DEMO</span>
+        </div>
+        <div class="chart-legend">
+          <span><i class="dot" style="background:var(--blue)"></i>HICP</span>
+          <span><i class="dot" style="background:var(--orange)"></i>Kerninflatie</span>
+          <span><i class="dash"></i>Doel (2%)</span>
+        </div>
+        <div class="chart-wrap" id="chartInflatie"></div>
+        <table class="data-table small">
+          <thead><tr><th>Indicator</th><th>Laatste</th><th>Vorige</th></tr></thead>
+          <tbody id="tblInflatie"></tbody>
+        </table>
+      </div>
+
+      <div class="panel" id="panelGroei">
+        <div class="panel-header">
+          <h2>Groei &amp; Activiteit</h2>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Indicator</th><th>Laatste</th><th>Trend</th></tr></thead>
+          <tbody id="tblGroei"></tbody>
+        </table>
+        <div class="panel-footer">Laatste update: <span class="live-clock"></span></div>
+      </div>
+
+      <div class="panel" id="panelArbeidsmarkt">
+        <div class="panel-header">
+          <h2>Arbeidsmarkt</h2>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Indicator</th><th>Laatste</th><th>Trend</th></tr></thead>
+          <tbody id="tblArbeidsmarkt"></tbody>
+        </table>
+        <div class="panel-footer">Laatste update: <span class="live-clock"></span></div>
+      </div>
+
+    </section>
+
+    <!-- ============ RIJ 2 ============ -->
+    <section class="grid-row row-2">
+
+      <div class="panel" id="panelObligatiemarkt">
+        <div class="panel-header">
+          <h2>Obligatiemarkt</h2>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Indicator</th><th>Laatste</th><th>Δ (bp)</th></tr></thead>
+          <tbody id="tblObligatiemarkt"></tbody>
+        </table>
+        <div class="subsection-title">Rentecurve Eurozone</div>
+        <div class="chart-legend">
+          <span><i class="dot" style="background:var(--blue)"></i>Vandaag</span>
+          <span><i class="dash"></i>Vorige week</span>
+        </div>
+        <div class="chart-wrap small" id="chartRenteCurve"></div>
+      </div>
+
+      <div class="panel" id="panelSectoren">
+        <div class="panel-header">
+          <h2>Sector Dashboard</h2>
+          <span class="panel-sub">(relatieve kracht)</span>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Sector</th><th>Score</th><th>Trend</th><th>vs Markt</th></tr></thead>
+          <tbody id="tblSectoren"></tbody>
+        </table>
+      </div>
+
+      <div class="panel" id="panelKalender">
+        <div class="panel-header">
+          <h2>Economische Kalender</h2>
+          <span class="badge badge-live" id="badgeKalender">LIVE — TradingView</span>
+        </div>
+        <div id="calendarWidgetWrap" class="tv-widget-wrap"></div>
+        <table class="data-table" id="calendarFallback" style="display:none">
+          <thead><tr><th>Tijd</th><th>Gebeurtenis</th><th>Impact</th><th>Verwacht</th><th>Vorige</th></tr></thead>
+          <tbody id="tblKalender"></tbody>
+        </table>
+      </div>
+
+    </section>
+
+    <!-- ============ RIJ 3 ============ -->
+    <section class="grid-row row-3">
+
+      <div class="panel" id="panelPortfolio">
+        <div class="panel-header">
+          <h2>Portfolio Heatmap</h2>
+          <span class="panel-sub">(dag performance)</span>
+          <span class="badge badge-demo" id="badgePortfolio">DEMO</span>
+        </div>
+        <div class="heatmap" id="heatmapGrid"></div>
+      </div>
+
+      <div class="panel" id="panelMacroScore">
+        <div class="panel-header">
+          <h2>Macro Score Model</h2>
+        </div>
+        <div class="score-bars" id="scoreBars"></div>
+        <div class="score-total">
+          <span class="score-total-label">TOTAAL SCORE</span>
+          <span class="score-total-value" id="scoreTotaal">–</span>
+        </div>
+        <div class="regime-row">
+          <span class="regime-label">Regime:</span>
+          <span class="regime-badge" id="regimeBadge">–</span>
+        </div>
+      </div>
+
+      <div class="panel" id="panelPositionering">
+        <div class="panel-header">
+          <h2>Actieve Positionering</h2>
+        </div>
+        <div class="positioning-list" id="positioningList"></div>
+        <div class="themas-row">
+          <span class="themas-label">Thema's</span>
+          <span class="themas-value" id="themasValue"></span>
+        </div>
+        <div class="panel-footer">Laatste update: <span class="live-clock"></span></div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <footer class="page-footer">
+    Macro Dashboard — gebouwd voor demo-/schooldoeleinden. Live data via ECB Data Portal, Frankfurter API, Stooq &amp; TradingView (zie README). Geen beleggingsadvies.
+  </footer>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
