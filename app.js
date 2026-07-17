@@ -1,14 +1,12 @@
 /* ==========================================================================
-   app.js — Macro Dashboard
-   1) Rendert alle panelen op basis van BASELINE (data.js)
-   2) Start klok
-   3) Probeert live databronnen op te halen; bij succes wordt de UI-waarde
-      + badge (LIVE, groene stip) bijgewerkt. Bij falen blijft de baseline
-      staan (DEMO badge, grijze stip).
+   app.js — Macro Dashboard (Volledig LIVE)
+   Alle data wordt opgehaald via serverless functions; bij falen valt het
+   terug op de baseline uit data.js.
    ========================================================================== */
 
 const nl = new Intl.NumberFormat("nl-BE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const nl1 = new Intl.NumberFormat("nl-BE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const nl0 = new Intl.NumberFormat("nl-BE", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
 function fmtPct(v, decimals = 2) {
   const s = v.toLocaleString("nl-BE", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
@@ -16,15 +14,21 @@ function fmtPct(v, decimals = 2) {
 }
 
 /* ------------------------------------------------------------------ *
- * LIVE STATE — houdt bij welke metrics succesvol live opgehaald zijn
+ * LIVE STATE
  * ------------------------------------------------------------------ */
-const LIVE = {}; // key -> { value, changePct? }
+const LIVE = {};
 
 function markLive(key) {
   document.querySelectorAll(`[data-live="${key}"]`).forEach((el) => {
     const dot = el.querySelector(".live-dot");
     if (dot) dot.classList.add("on");
   });
+  // Update badge
+  const badge = document.querySelector(`[data-badge="${key}"]`);
+  if (badge) {
+    badge.textContent = "LIVE";
+    badge.className = "badge badge-live";
+  }
 }
 
 /* ==========================================================================
@@ -75,7 +79,7 @@ function renderCentraleBanken() {
 }
 
 /* ==========================================================================
-   RENDER: GROEI & ACTIVITEIT / ARBEIDSMARKT (zelfde tabelvorm)
+   RENDER: GROEI & ACTIVITEIT / ARBEIDSMARKT
    ========================================================================== */
 function renderSimpleTable(tbodyId, rows) {
   const tbody = document.getElementById(tbodyId);
@@ -106,7 +110,8 @@ function drawLineChart(containerId, series, opts) {
   const padL = 34, padR = 8, padT = 10, padB = 20;
   const innerW = W - padL - padR, innerH = H - padT - padB;
 
-  const allVals = series.flatMap((s) => s.data);
+  const allVals = series.flatMap((s) => s.data.filter(v => v !== null && v !== undefined));
+  if (allVals.length === 0) { el.innerHTML = '<p style="color:#545c6a;text-align:center;padding:20px;">Geen data</p>'; return; }
   const min = opts.min !== undefined ? opts.min : Math.min(...allVals, 0);
   const max = opts.max !== undefined ? opts.max : Math.max(...allVals);
   const n = series[0].data.length;
@@ -116,7 +121,6 @@ function drawLineChart(containerId, series, opts) {
 
   let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">`;
 
-  // gridlines (y-as)
   const steps = opts.yTicks || 5;
   for (let i = 0; i <= steps; i++) {
     const v = min + (i / steps) * (max - min);
@@ -125,13 +129,11 @@ function drawLineChart(containerId, series, opts) {
     svg += `<text x="${padL - 6}" y="${yy + 3}" text-anchor="end" font-size="9" fill="#545c6a">${opts.yFmt ? opts.yFmt(v) : v}</text>`;
   }
 
-  // doellijn (dashed)
   if (opts.targetLine !== undefined) {
     const yy = y(opts.targetLine);
     svg += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}" stroke="#545c6a" stroke-width="1.2" stroke-dasharray="4 3"/>`;
   }
 
-  // x-as labels
   if (opts.xLabels) {
     opts.xLabels.forEach((lab, idx) => {
       const xi = (idx / (opts.xLabels.length - 1)) * (n - 1);
@@ -139,14 +141,16 @@ function drawLineChart(containerId, series, opts) {
     });
   }
 
-  // series
   series.forEach((s) => {
-    const pts = s.data.map((v, i) => `${x(i)},${y(v)}`).join(" ");
+    const pts = s.data.map((v, i) => v !== null && v !== undefined ? `${x(i)},${y(v)}` : null).filter(p => p).join(" ");
+    if (!pts) return;
     const dash = s.dashed ? `stroke-dasharray="5 4"` : "";
     svg += `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2" ${dash} stroke-linejoin="round" stroke-linecap="round"/>`;
     if (s.dots) {
       s.data.forEach((v, i) => {
-        svg += `<circle cx="${x(i)}" cy="${y(v)}" r="2.6" fill="${s.color}"/>`;
+        if (v !== null && v !== undefined) {
+          svg += `<circle cx="${x(i)}" cy="${y(v)}" r="2.6" fill="${s.color}"/>`;
+        }
       });
     }
   });
@@ -155,10 +159,12 @@ function drawLineChart(containerId, series, opts) {
   el.innerHTML = svg;
 }
 
-function renderInflatieChart() {
+function renderInflatieChart(data) {
+  const hicp = data?.hicp || BASELINE.inflatie.hicp;
+  const core = data?.core || BASELINE.inflatie.core;
   drawLineChart("chartInflatie", [
-    { data: BASELINE.inflatie.hicp, color: "#4a8fe7" },
-    { data: BASELINE.inflatie.core, color: "#e8873f" },
+    { data: hicp, color: "#4a8fe7" },
+    { data: core, color: "#e8873f" },
   ], {
     min: 0, max: 10, yTicks: 5,
     yFmt: (v) => v.toFixed(0) + "%",
@@ -185,8 +191,8 @@ function renderObligatiemarkt() {
   }).join("");
 }
 
-function renderRenteCurve() {
-  const rc = BASELINE.renteCurve;
+function renderRenteCurve(data) {
+  const rc = data || BASELINE.renteCurve;
   drawLineChart("chartRenteCurve", [
     { data: rc.vandaag, color: "#4a8fe7", dots: true },
     { data: rc.vorigeWeek, color: "#545c6a", dashed: true },
@@ -218,7 +224,7 @@ function renderSectoren() {
 }
 
 /* ==========================================================================
-   RENDER: ECONOMISCHE KALENDER — TradingView widget (live) + fallback
+   RENDER: ECONOMISCHE KALENDER
    ========================================================================== */
 function renderKalenderFallback() {
   const tbody = document.getElementById("tblKalender");
@@ -255,7 +261,6 @@ function renderKalenderWidget() {
   container.appendChild(script);
   wrap.appendChild(container);
 
-  // Als TradingView na 4s niets rendert (bv. geblokkeerd netwerk), val terug op de statische tabel.
   setTimeout(() => {
     const iframe = wrap.querySelector("iframe");
     if (!iframe) {
@@ -271,9 +276,9 @@ function renderKalenderWidget() {
    RENDER: PORTFOLIO HEATMAP
    ========================================================================== */
 function heatColor(pct) {
-  const intensity = Math.min(Math.abs(pct) / 2.5, 1); // schaal: 2.5% = volle kleur
+  const intensity = Math.min(Math.abs(pct) / 2.5, 1);
   if (pct >= 0) {
-    const l = 22 + intensity * 8; // donker -> iets lichter groen
+    const l = 22 + intensity * 8;
     return `hsl(150, 45%, ${l}%)`;
   }
   const l = 22 + intensity * 8;
@@ -355,125 +360,263 @@ function updateClock() {
 }
 
 /* ==========================================================================
-   LIVE DATA — FRANKFURTER (EUR/USD, direct client-side, CORS-vriendelijk)
+   LIVE DATA — API FETCH HELPERS
+   ========================================================================== */
+async function fetchAPI(endpoint, params = {}) {
+  const qs = new URLSearchParams(params).toString();
+  const url = `/api/${endpoint}${qs ? '?' + qs : ''}`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.json();
+}
+
+/* ==========================================================================
+   LIVE DATA — EUR/USD (Frankfurter API)
    ========================================================================== */
 async function fetchEurUsd() {
   try {
-    const resp = await fetch("https://api.frankfurter.dev/v1/latest?base=EUR&symbols=USD");
-    if (!resp.ok) throw new Error("HTTP " + resp.status);
-    const data = await resp.json();
-    const rate = data.rates && data.rates.USD;
-    if (!rate) throw new Error("geen USD rate in response");
-    updateTickerItem("eurusd", rate.toFixed(4).replace(".", ","), null);
+    const data = await fetchAPI('frankfurter');
+    const rate = data.rates?.USD;
+    if (!rate) throw new Error("Geen USD rate");
+    const str = rate.toFixed(4).replace(".", ",");
+    updateTickerItem("eurusd", str, null);
     markLive("eurusd");
   } catch (err) {
-    console.warn("EUR/USD live fetch mislukt, val terug op demo:", err.message);
+    console.warn("EUR/USD live fetch mislukt:", err.message);
   }
 }
 
 /* ==========================================================================
-   LIVE DATA — ECB (via eigen /api/ecb proxy)
+   LIVE DATA — ECB (Depo, HICP, Core)
    ========================================================================== */
-async function fetchEcb(series) {
-  try {
-    const resp = await fetch(`/api/ecb?series=${series}`);
-    if (!resp.ok) throw new Error("HTTP " + resp.status);
-    const data = await resp.json();
-    return data;
-  } catch (err) {
-    console.warn(`ECB ${series} live fetch mislukt, val terug op demo:`, err.message);
-    return null;
-  }
-}
-
 async function loadEcbDepo() {
-  const data = await fetchEcb("depo");
-  if (!data || !data.latest) return;
-  const v = data.latest.value;
-  const str = nl.format(v).replace(".", ",") + "%";
-  document.querySelectorAll('[data-role="ecbDepo"]').forEach((el) => (el.textContent = str));
-  updateTickerItem("ecb", str, null);
-  markLive("ecbDepo");
+  try {
+    const data = await fetchAPI('ecb', { series: 'depo' });
+    if (!data?.latest) return;
+    const v = data.latest.value;
+    const str = nl.format(v).replace(".", ",") + "%";
+    document.querySelectorAll('[data-role="ecbDepo"]').forEach((el) => (el.textContent = str));
+    updateTickerItem("ecb", str, null);
+    markLive("ecbDepo");
+  } catch (err) {
+    console.warn("ECB Depo fetch mislukt:", err.message);
+  }
 }
 
 async function loadEcbInflation() {
-  const [hicp, core] = await Promise.all([fetchEcb("hicp"), fetchEcb("core")]);
+  try {
+    const [hicpData, coreData] = await Promise.all([
+      fetchAPI('ecb', { series: 'hicp' }).catch(() => null),
+      fetchAPI('ecb', { series: 'core' }).catch(() => null)
+    ]);
 
-  if (hicp && hicp.history && hicp.history.length >= 2) {
-    const vals = hicp.history.map((r) => r.value);
-    BASELINE.inflatie.hicp = vals.slice(-11);
-    const latest = hicp.latest.value;
-    const prev = hicp.history[hicp.history.length - 2].value;
-    document.querySelectorAll('[data-role="hicp-laatste"]').forEach((el) => (el.textContent = nl.format(latest).replace(".", ",") + "%"));
-    markLive("hicp");
-  }
-  if (core && core.history && core.history.length >= 2) {
-    const vals = core.history.map((r) => r.value);
-    BASELINE.inflatie.core = vals.slice(-11);
-    const latest = core.latest.value;
-    document.querySelectorAll('[data-role="coreInflation-laatste"]').forEach((el) => (el.textContent = nl.format(latest).replace(".", ",") + "%"));
-    markLive("coreInflation");
-  }
-  if ((hicp && hicp.history) || (core && core.history)) {
-    renderInflatieChart();
-    document.getElementById("badgeInflatie").textContent = "LIVE — ECB Data Portal";
-    document.getElementById("badgeInflatie").className = "badge badge-live";
+    if (hicpData?.history?.length >= 2) {
+      const vals = hicpData.history.map((r) => r.value).slice(-11);
+      BASELINE.inflatie.hicp = vals;
+      const latest = hicpData.latest.value;
+      document.querySelectorAll('[data-role="hicp-laatste"]').forEach((el) => (el.textContent = nl.format(latest).replace(".", ",") + "%"));
+      markLive("hicp");
+    }
+    if (coreData?.history?.length >= 2) {
+      const vals = coreData.history.map((r) => r.value).slice(-11);
+      BASELINE.inflatie.core = vals;
+      const latest = coreData.latest.value;
+      document.querySelectorAll('[data-role="coreInflation-laatste"]').forEach((el) => (el.textContent = nl.format(latest).replace(".", ",") + "%"));
+      markLive("coreInflation");
+    }
+    if (hicpData?.history || coreData?.history) {
+      renderInflatieChart();
+      document.getElementById("badgeInflatie").textContent = "LIVE — ECB";
+      document.getElementById("badgeInflatie").className = "badge badge-live";
+    }
+  } catch (err) {
+    console.warn("ECB inflatie fetch mislukt:", err.message);
   }
 }
 
 /* ==========================================================================
-   LIVE DATA — STOOQ (via eigen /api/quote proxy): indices, rente, grondstoffen, aandelen
+   LIVE DATA — FRED (Fed Funds, GDP US, Unemployment US, CPI)
    ========================================================================== */
-async function fetchQuote(symbol) {
+async function loadFredData() {
+  const series = ['fedfunds', 'gdpus', 'unrateus', 'cpiusy'];
   try {
-    const resp = await fetch(`/api/quote?symbol=${encodeURIComponent(symbol)}`);
-    if (!resp.ok) throw new Error("HTTP " + resp.status);
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error);
-    return data;
+    const results = await Promise.all(
+      series.map(s => fetchAPI('fred', { series: s }).catch(() => null))
+    );
+    results.forEach((data) => {
+      if (!data?.latest) return;
+      const key = data.series;
+      const val = data.latest.value;
+      const unit = data.unit || '';
+      const decimals = data.decimals || 2;
+      const str = val.toFixed(decimals).replace(".", ",") + unit;
+
+      // Update ticker (als het bestaat)
+      const tickerMap = { fedfunds: 'fedfunds', gdpus: 'gdpus', unrateus: 'unrateus', cpiusy: 'cpiusy' };
+      const tickerId = tickerMap[key];
+      if (tickerId) updateTickerItem(tickerId, str, null);
+
+      // Update tabellen
+      const roleMap = {
+        fedfunds: 'fedFunds',
+        gdpus: 'gdpGrowth',
+        unrateus: 'unemployment',
+        cpiusy: 'cpiUs'
+      };
+      const role = roleMap[key];
+      if (role) {
+        document.querySelectorAll(`[data-role="${role}"]`).forEach((el) => (el.textContent = str));
+        markLive(role);
+      }
+    });
   } catch (err) {
-    console.warn(`Quote ${symbol} live fetch mislukt, val terug op demo:`, err.message);
-    return null;
+    console.warn("FRED fetch mislukt:", err.message);
   }
 }
 
+/* ==========================================================================
+   LIVE DATA — EUROSTAT (Unemployment EU, GDP EU, Industrial Production, Consumer Confidence)
+   ========================================================================== */
+async function loadEurostatData() {
+  const series = ['unemployment', 'gdp', 'indprod', 'consconf'];
+  try {
+    const results = await Promise.all(
+      series.map(s => fetchAPI('eurostat', { series: s }).catch(() => null))
+    );
+    results.forEach((data) => {
+      if (!data?.latest) return;
+      const key = data.series;
+      const val = data.latest.value;
+      const unit = data.unit === '%' ? '%' : '';
+      const decimals = data.decimals || 1;
+      const str = val.toFixed(decimals).replace(".", ",") + unit;
+
+      const roleMap = {
+        unemployment: 'unemploymentEu',
+        gdp: 'gdpEu',
+        indprod: 'indProd',
+        consconf: 'consConf'
+      };
+      const role = roleMap[key];
+      if (role) {
+        document.querySelectorAll(`[data-role="${role}"]`).forEach((el) => (el.textContent = str));
+        markLive(role);
+      }
+    });
+  } catch (err) {
+    console.warn("Eurostat fetch mislukt:", err.message);
+  }
+}
+
+/* ==========================================================================
+   LIVE DATA — BONDS (via /api/bonds)
+   ========================================================================== */
+async function loadBondsData() {
+  try {
+    const data = await fetchAPI('bonds');
+    if (!data) return;
+
+    // Update ticker
+    if (data.bund10y) {
+      const str = data.bund10y.value.toFixed(2).replace(".", ",") + "%";
+      updateTickerItem("bund10y", str, null);
+      document.querySelectorAll('[data-role="bund10y"]').forEach((el) => (el.textContent = str));
+      markLive("bund10y");
+    }
+
+    // Update obligatiemarkt tabel
+    const bondMap = {
+      'Duitse 2Y Bund': data.bund2y,
+      'Duitse 10Y Bund': data.bund10y,
+      'BTP-Bund Spread': data.spread_btp_bund !== null ? { value: data.spread_btp_bund, unit: ' bp' } : null,
+      '10Y - 2Y Spread': data.spread_10y_2y !== null ? { value: data.spread_10y_2y, unit: ' bp' } : null,
+      'US 10Y Treasury': data.us10y,
+    };
+
+    Object.entries(bondMap).forEach(([label, bondData]) => {
+      if (!bondData) return;
+      const value = typeof bondData === 'object' ? bondData.value : bondData;
+      const unit = typeof bondData === 'object' ? (bondData.unit || '%') : '%';
+      const str = value.toFixed(2).replace(".", ",") + unit;
+      const td = document.querySelector(`#tblObligatiemarkt td:first-child:contains("${label}")`);
+      if (td) {
+        const row = td.closest('tr');
+        if (row) {
+          const valTd = row.querySelector('td:nth-child(2)');
+          if (valTd) valTd.textContent = str;
+        }
+      }
+    });
+
+    // Update rentecurve chart
+    if (data.renteCurve) {
+      renderRenteCurve(data.renteCurve);
+    }
+
+    // Update badge
+    document.getElementById("badgeObligatiemarkt").textContent = "LIVE — ECB+FRED";
+    document.getElementById("badgeObligatiemarkt").className = "badge badge-live";
+  } catch (err) {
+    console.warn("Bonds fetch mislukt:", err.message);
+  }
+}
+
+/* ==========================================================================
+   LIVE DATA — QUOTES (Alpha Vantage → Stooq fallback)
+   ========================================================================== */
 const TICKER_QUOTE_MAP = {
-  sx5e:    { symbol: "^sx5e",  tickerId: "sx5e",   decimals: 2, thousands: true },
-  vstoxx:  { symbol: "^v2tx",  tickerId: "vstoxx",  decimals: 2, thousands: false },
-  brent:   { symbol: "cb.f",   tickerId: "brent",   decimals: 2, thousands: false },
-  gold:    { symbol: "xauusd", tickerId: "gold",    decimals: 2, thousands: true },
-  bund10y: { symbol: "10dey.b",tickerId: "bund10y", decimals: 2, thousands: false, isPercent: true },
+  sx5e:    { apiSymbol: "^sx5e",  tickerId: "sx5e",   decimals: 2, thousands: true },
+  vstoxx:  { apiSymbol: "^v2tx",  tickerId: "vstoxx",  decimals: 2, thousands: false },
+  brent:   { apiSymbol: "cb.f",   tickerId: "brent",   decimals: 2, thousands: false },
+  gold:    { apiSymbol: "xauusd", tickerId: "gold",    decimals: 2, thousands: true },
+};
+
+const PORTFOLIO_SYMBOL_MAP = {
+  'ASML.NL': 'asml.nl',
+  'SAP.DE': 'sap.de',
+  'MC.FR': 'mc.fr',
+  'INGA.NL': 'inga.nl',
+  'SHEL.UK': 'shel.uk',
+  'AIR.FR': 'air.fr',
+  'SU.FR': 'su.fr',
+  'TTE.FR': 'tte.fr',
+  'BMW.DE': 'bmw.de',
 };
 
 async function loadMarketQuotes() {
   const entries = Object.entries(TICKER_QUOTE_MAP);
-  const results = await Promise.all(entries.map(([key, cfg]) => fetchQuote(cfg.symbol).then((r) => [key, cfg, r])));
-  results.forEach(([key, cfg, data]) => {
+  const results = await Promise.all(
+    entries.map(([key, cfg]) => 
+      fetchAPI('quote', { symbol: cfg.apiSymbol }).catch(() => null)
+    )
+  );
+  results.forEach((data, idx) => {
     if (!data) return;
+    const [key, cfg] = entries[idx];
     const valStr = cfg.thousands
       ? data.close.toLocaleString("nl-BE", { minimumFractionDigits: cfg.decimals, maximumFractionDigits: cfg.decimals })
       : data.close.toFixed(cfg.decimals).replace(".", ",");
-    updateTickerItem(cfg.tickerId, valStr + (cfg.isPercent ? "%" : ""), data.changePct);
+    updateTickerItem(cfg.tickerId, valStr, data.changePct);
     markLive(key);
-    if (key === "bund10y") {
-      const str = data.close.toFixed(2).replace(".", ",") + "%";
-      document.querySelectorAll('[data-role="bund10y"]').forEach((el) => (el.textContent = str));
-    }
   });
 }
 
 async function loadPortfolioQuotes() {
+  const entries = Object.entries(PORTFOLIO_SYMBOL_MAP);
   const results = await Promise.all(
-    BASELINE.portfolio.map((p) => fetchQuote(p.ticker.toLowerCase()).then((r) => [p, r]))
+    entries.map(([key, sym]) => 
+      fetchAPI('quote', { symbol: sym }).catch(() => null)
+    )
   );
   let anyLive = false;
-  results.forEach(([p, data]) => {
+  results.forEach((data, idx) => {
     if (!data || data.changePct === null) return;
     anyLive = true;
-    updatePortfolioCell(p.ticker, data.changePct);
+    const ticker = entries[idx][0];
+    updatePortfolioCell(ticker, data.changePct);
   });
   if (anyLive) {
-    document.getElementById("badgePortfolio").textContent = "LIVE — Stooq";
+    document.getElementById("badgePortfolio").textContent = "LIVE — Alpha Vantage";
     document.getElementById("badgePortfolio").className = "badge badge-live";
   }
 }
@@ -500,17 +643,24 @@ function init() {
   updateClock();
   setInterval(updateClock, 1000 * 15);
 
-  // Live databronnen ophalen (elk faalt onafhankelijk en gracieus)
+  // Live data ophalen
   fetchEurUsd();
   loadEcbDepo();
   loadEcbInflation();
+  loadFredData();
+  loadEurostatData();
+  loadBondsData();
   loadMarketQuotes();
   loadPortfolioQuotes();
 
-  // Herhaal live refresh elke 5 minuten
+  // Herhaal elke 5 minuten
   setInterval(() => {
     fetchEurUsd();
     loadEcbDepo();
+    loadEcbInflation();
+    loadFredData();
+    loadEurostatData();
+    loadBondsData();
     loadMarketQuotes();
     loadPortfolioQuotes();
   }, 5 * 60 * 1000);
