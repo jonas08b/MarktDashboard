@@ -1,53 +1,116 @@
 // api/quote.js
-// Vercel serverless function — haalt een snapshot-koers op bij Stooq
-// (gratis, geen API key) en geeft ze plat terug als JSON.
+// Vercel serverless function — haalt snapshot-koers op.
+// Strategie: Alpha Vantage (betrouwbaar, API key) → Stooq (gratis, geen key) als fallback.
 //
-// LET OP: dit is een onofficiële/niet-gedocumenteerde Stooq-endpoint die
-// door de quant-community gebruikt wordt (geen officiële "API"). Werkt
-// betrouwbaar voor de meeste tickers maar kan zonder waarschuwing wijzigen.
-// Bouw hier geen productie-kritische toepassing op — voor een schoolproject
-// is dit prima; voor iets serieuzers: Twelve Data / Alpha Vantage / Finnhub
-// (allen gratis tier met API key) of een betaalde feed.
+// Env vars (Vercel):
+//   ALPHA_VANTAGE_KEY  — gratis key via https://www.alphavantage.co/support/#api-key
 //
-// Gebruik: /api/quote?symbol=asml.nl
+// Gebruik: /api/quote?symbol=ASML.AS
+
+const AV_KEY = process.env.ALPHA_VANTAGE_KEY;
+
+// Mapping naar Alpha Vantage symbolen
+const AV_SYMBOL_MAP = {
+  "^sx5e":   { stooqOnly: true, stooqSym: "^sx5e" },
+  "^v2tx":   { stooqOnly: true, stooqSym: "^v2tx" },
+  "cb.f":    { stooqOnly: true, stooqSym: "cb.f" },
+  "xauusd":  { av: "XAU", avType: "forex", stooqSym: "xauusd" },
+  "10dey.b": { stooqOnly: true, stooqSym: "10dey.b" },
+  "asml.nl": { av: "ASML.AS", avType: "equity", stooqSym: "asml.nl" },
+  "sap.de":  { av: "SAP",     avType: "equity", stooqSym: "sap.de" },
+  "mc.fr":   { av: "MC.PA",   avType: "equity", stooqSym: "mc.fr" },
+  "inga.nl": { av: "INGA.AS", avType: "equity", stooqSym: "inga.nl" },
+  "shel.uk": { av: "SHEL",    avType: "equity", stooqSym: "shel.uk" },
+  "air.fr":  { av: "AIR.PA",  avType: "equity", stooqSym: "air.fr" },
+  "su.fr":   { av: "SU.PA",   avType: "equity", stooqSym: "su.fr" },
+  "tte.fr":  { av: "TTE.PA",  avType: "equity", stooqSym: "tte.fr" },
+  "bmw.de":  { av: "BMW.DE",  avType: "equity", stooqSym: "bmw.de" },
+};
+
+async function fetchAlphaVantageEquity(avSymbol) {
+  const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(avSymbol)}&apikey=${AV_KEY}`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`AV HTTP ${resp.status}`);
+  const data = await resp.json();
+  const q = data["Global Quote"];
+  if (!q || !q["05. price"]) throw new Error("AV: geen data voor " + avSymbol);
+  const close = parseFloat(q["05. price"]);
+  const open = parseFloat(q["02. open"]);
+  const changePct = parseFloat(q["10. change percent"].replace("%", ""));
+  return { close, open, changePct };
+}
+
+async function fetchAlphaVantageForex(fromCurrency) {
+  const url = `https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${fromCurrency}&to_currency=USD&apikey=${AV_KEY}`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`AV Forex HTTP ${resp.status}`);
+  const data = await resp.json();
+  const rate = data["Realtime Currency Exchange Rate"];
+  if (!rate) throw new Error("AV Forex: geen data");
+  const close = parseFloat(rate["5. Exchange Rate"]);
+  return { close, open: close, changePct: null };
+}
+
+async function fetchStooq(symbol) {
+  const url = `https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlc&h&e=csv`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Stooq HTTP ${resp.status}`);
+  const text = await resp.text();
+  const lines = text.trim().split("\n");
+  if (lines.length < 2) throw new Error("Stooq: lege response");
+  const header = lines[0].split(",").map((h) => h.replace(/"/g, ""));
+  const cells = lines[1].split(",").map((c) => c.replace(/"/g, ""));
+  const row = {};
+  header.forEach((h, i) => (row[h] = cells[i]));
+  const open = parseFloat(row.Open);
+  const close = parseFloat(row.Close);
+  if (Number.isNaN(close) || close <= 0 || row.Close === "N/D") {
+    throw new Error("Stooq: ongeldige ticker " + symbol);
+  }
+  const changePct = open > 0 ? ((close - open) / open) * 100 : null;
+  return { close, open, changePct };
+}
 
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Cache-Control", "s-maxage=120, stale-while-revalidate=300");
 
-  const symbol = req.query.symbol;
+  const symbol = (req.query.symbol || "").toLowerCase();
   if (!symbol) {
     res.status(400).json({ error: "symbol parameter verplicht" });
     return;
   }
 
-  try {
-    const url = `https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlc&h&e=csv`;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`Stooq HTTP ${resp.status}`);
-    const text = await resp.text();
-    const lines = text.trim().split("\n");
-    if (lines.length < 2) throw new Error("Stooq: lege response");
-    const header = lines[0].split(",").map((h) => h.replace(/"/g, ""));
-    const cells = lines[1].split(",").map((c) => c.replace(/"/g, ""));
-    const row = {};
-    header.forEach((h, i) => (row[h] = cells[i]));
+  const mapping = AV_SYMBOL_MAP[symbol];
 
-    const open = parseFloat(row.Open);
-    const close = parseFloat(row.Close);
-    if (row.Symbol === undefined || Number.isNaN(close) || close <= 0 || row.Close === "N/D") {
-      throw new Error("Stooq: ongeldige/onbekende ticker");
+  try {
+    let result = null;
+    let source = "stooq";
+
+    if (AV_KEY && mapping && !mapping.stooqOnly) {
+      try {
+        if (mapping.avType === "equity") {
+          result = await fetchAlphaVantageEquity(mapping.av);
+          source = "alphavantage";
+        } else if (mapping.avType === "forex") {
+          result = await fetchAlphaVantageForex(mapping.av);
+          source = "alphavantage";
+        }
+      } catch (avErr) {
+        console.warn(`AV mislukt voor ${symbol}, probeer Stooq:`, avErr.message);
+      }
     }
 
-    const changePct = open > 0 ? ((close - open) / open) * 100 : null;
+    if (!result) {
+      const stooqSym = mapping ? mapping.stooqSym : symbol;
+      result = await fetchStooq(stooqSym);
+      source = "stooq";
+    }
 
     res.status(200).json({
-      symbol: row.Symbol,
-      date: row.Date,
-      time: row.Time,
-      open,
-      close,
-      changePct,
+      symbol,
+      source,
+      ...result,
     });
   } catch (err) {
     res.status(502).json({ error: "Quote fetch mislukt", detail: String(err) });
