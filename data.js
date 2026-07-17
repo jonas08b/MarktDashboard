@@ -1,9 +1,5 @@
 /* ==========================================================================
    data.js — Statische baseline (demo) data.
-   Dit is de exacte data uit de originele screenshot. Elk paneel probeert
-   eerst live data op te halen (zie app.js); lukt dit niet, dan valt de UI
-   terug op deze waarden en toont een grijze "DEMO" badge i.p.v. een groene
-   "LIVE" badge. Zo blijft de dashboard altijd volledig en werkend.
    ========================================================================== */
 
 const BASELINE = {
@@ -16,11 +12,13 @@ const BASELINE = {
     { id: "vstoxx",  label: "VSTOXX",         value: "18,40",    delta: -1.10, deltaText: "-1,10", live: "vstoxx" },
     { id: "brent",   label: "Brent Oil",      value: "84,32",    delta: 0.65,  deltaText: "+0,65", live: "brent" },
     { id: "gold",    label: "Gold",           value: "2.350,10", delta: -0.20, deltaText: "-0,20%", live: "gold" },
+    { id: "fedfunds",label: "Fed Funds Rate", value: "4,25%",    delta: 0,     deltaText: "0,00", live: "fedFunds" },
+    { id: "gdpus",   label: "VS BBP YoY",     value: "2,8%",     delta: 0,     deltaText: "0,00", live: "gdpGrowth" },
   ],
 
   centraleBanken: [
     { naam: "ECB Depo Rate",  waarde: "2,00%",  trend: "down", live: "ecbDepo" },
-    { naam: "Fed Funds Rate", waarde: "4,25%",  trend: "down" },
+    { naam: "Fed Funds Rate", waarde: "4,25%",  trend: "down", live: "fedFunds" },
     { naam: "BoE Rate",       waarde: "3,75%",  trend: "flat" },
     { naam: "BoJ Policy Rate",waarde: "-0,10%", trend: "flat" },
     { naam: "PBoC 1Y LPR",    waarde: "3,45%",  trend: "up" },
@@ -41,24 +39,25 @@ const BASELINE = {
   groeiActiviteit: [
     { naam: "PMI Manufacturing",       laatste: "49,8", trend: "bad" },
     { naam: "PMI Services",            laatste: "52,1", trend: "good" },
-    { naam: "BBP-groei (YoY)",         laatste: "1,4%", trend: "good", live: "gdpGrowth" },
+    { naam: "BBP-groei Eurozone (YoY)", laatste: "1,4%", trend: "good", live: "gdpEu" },
     { naam: "Industriële productie (YoY)", laatste: "-1,0%", trend: "bad", live: "indProd" },
     { naam: "Consumentenvertrouwen",   laatste: "-12",  trend: "bad", live: "consConf" },
   ],
 
   arbeidsmarkt: [
-    { naam: "Werkloosheid",     laatste: "6,2%",  trend: "good", live: "unemployment" },
-    { naam: "Loongroei (YoY)",  laatste: "3,1%",  trend: "good" },
-    { naam: "Vacatures (YoY)",  laatste: "+8,2%", trend: "good" },
-    { naam: "Participatiegraad",laatste: "72,3%", trend: "neutral" },
+    { naam: "Werkloosheid EU",      laatste: "6,2%",  trend: "good", live: "unemploymentEu" },
+    { naam: "Werkloosheid VS",      laatste: "3,8%",  trend: "good", live: "unemployment" },
+    { naam: "Loongroei (YoY)",      laatste: "3,1%",  trend: "good" },
+    { naam: "Vacatures (YoY)",      laatste: "+8,2%", trend: "good" },
+    { naam: "Participatiegraad",    laatste: "72,3%", trend: "neutral" },
   ],
 
   obligatiemarkt: [
-    { naam: "Duitse 2Y Bund",  laatste: "1,90%", delta: "-2" },
+    { naam: "Duitse 2Y Bund",  laatste: "1,90%", delta: "-2", live: "bund2y" },
     { naam: "Duitse 10Y Bund", laatste: "2,60%", delta: "+3", live: "bund10y" },
-    { naam: "10Y - 2Y Spread", laatste: "+70 bp", delta: "+5" },
-    { naam: "BTP-Bund Spread", laatste: "+130 bp", delta: "+4" },
-    { naam: "US 10Y Treasury", laatste: "4,42%", delta: "+2" },
+    { naam: "10Y - 2Y Spread", laatste: "+70 bp", delta: "+5", live: "spread10y2y" },
+    { naam: "BTP-Bund Spread", laatste: "+130 bp", delta: "+4", live: "spreadBtpBund" },
+    { naam: "US 10Y Treasury", laatste: "4,42%", delta: "+2", live: "us10y" },
   ],
 
   renteCurve: {
@@ -81,7 +80,7 @@ const BASELINE = {
 
   kalender: [
     { tijd: "09:00", event: "Duitse PPI (YoY)",     impact: "high", verwacht: "-0,2%", vorige: "-0,4%" },
-    { tijd: "11:00", event: "Eurozone CPI (YoY)",   impact: "high", verwacht: "2,1%",  vorige: "2,4%", live: "hicp" },
+    { tijd: "11:00", event: "Eurozone CPI (YoY)",   impact: "high", verwacht: "2,1%",  vorige: "2,4%" },
     { tijd: "14:30", event: "VS Building Permits",  impact: "med",  verwacht: "1,46M", vorige: "1,48M" },
     { tijd: "14:30", event: "VS Housing Starts",    impact: "med",  verwacht: "1,38M", vorige: "1,32M" },
     { tijd: "16:00", event: "VS Conf. Board Index", impact: "med",  verwacht: "100,2", vorige: "97,5" },
@@ -95,10 +94,10 @@ const BASELINE = {
     { naam: "ING",          pct: 1.20,  ticker: "INGA.NL" },
     { naam: "Shell",        pct: -0.55, ticker: "SHEL.UK" },
     { naam: "Airbus",       pct: 0.95,  ticker: "AIR.FR" },
-    { naam: "ASML Hold.",   pct: 1.80,  ticker: "ASML.NL" },
     { naam: "Schneider",    pct: 0.40,  ticker: "SU.FR" },
     { naam: "TotalEnergies",pct: -0.30, ticker: "TTE.FR" },
     { naam: "BMW",          pct: -0.80, ticker: "BMW.DE" },
+    { naam: "Siemens",      pct: 0.60,  ticker: "SIE.DE" },
   ],
 
   macroScore: {
